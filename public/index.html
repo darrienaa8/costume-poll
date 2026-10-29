@@ -34,8 +34,7 @@
     <section class="card center" id="done" hidden>
       <div class="big-emoji" id="doneEmoji">🎃</div>
       <h2 id="doneTitle">Thanks!</h2>
-      <p class="sub" id="doneText" style="margin-bottom:14px"></p>
-      <a class="btn" href="/results">See the results 🏆</a>
+      <p class="sub" id="doneText" style="margin-bottom:0"></p>
     </section>
 
     <section class="card center" id="offline" hidden>
@@ -59,16 +58,16 @@
         ['loading', 'form', 'done', 'offline'].forEach(function (id) { $(id).hidden = id !== which; });
       }
 
-      function finish(emoji, title, text, delay) {
+      // Results are private to the host, so guests just get a thank-you.
+      function finish(emoji, title, text) {
         $('doneEmoji').textContent = emoji;
         $('doneTitle').textContent = title;
         $('doneText').textContent = text;
         show('done');
-        setTimeout(function () { location.href = '/results'; }, delay);
       }
 
       function alreadyVoted() {
-        finish('👻', 'You’ve already voted. Thanks!', 'Taking you to the results…', 2200);
+        finish('👻', 'You’ve already voted. Thanks!', 'The host will announce the winner. 🎃');
       }
 
       function init() {
@@ -111,7 +110,7 @@
           .then(function (res) {
             if (res.status === 200) {
               lsSet(res.body.pollId || pollId || '1');
-              finish('🎃', 'Vote counted!', 'Thanks! Here come the results…', 1200);
+              finish('🎃', 'Vote counted!', 'Thanks! The host will announce the winner.');
             } else if (res.status === 409) {
               lsSet(res.body.pollId || pollId || '1');
               alreadyVoted();

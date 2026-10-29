@@ -25,12 +25,15 @@
 
     <ol class="board" id="board"></ol>
 
-    <div class="card empty" id="empty">
+    <div class="card empty" id="empty" hidden>
       <div class="big-emoji">👻</div>
-      <div>No votes yet. Be the first!</div>
+      <div>No votes yet.</div>
     </div>
 
-    <a class="btn" id="voteBtn" href="/" hidden>Cast my vote 🎃</a>
+    <div class="card empty" id="locked" hidden>
+      <div class="big-emoji">🔒</div>
+      <div>Results are hidden. Thanks for voting! The host will announce the winner.</div>
+    </div>
   </main>
 
   <script>
@@ -87,25 +90,31 @@
         clearTimeout(timer); // always exactly one polling loop
         timer = setTimeout(tick, failures > 2 ? 8000 : 3000);
       }
-      function tick() {
+      // Only the host can see results. The host's browser keeps the key from /host.
+      var key = '';
+      try { key = localStorage.getItem('costumePollHostKey') || ''; } catch (e) {}
+
+      function lock() {
         clearTimeout(timer);
-        if (document.hidden) return schedule();
-        fetch('/api/results', { cache: 'no-store' })
-          .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
-          .then(function (d) { failures = 0; render(d); })
-          .catch(function () { failures++; })
-          .then(schedule);
+        document.querySelector('.stats').style.display = 'none'; // .stats/.board set display, which beats [hidden]
+        board.style.display = 'none';
+        document.getElementById('empty').hidden = true;
+        document.getElementById('locked').hidden = false;
       }
 
-      // Offer the vote button only to people who haven't voted yet.
-      fetch('/api/status', { cache: 'no-store' })
-        .then(function (r) { return r.json(); })
-        .then(function (st) {
-          var ls = null;
-          try { ls = localStorage.getItem('costumePollVoted'); } catch (e) {}
-          if (!st.voted && ls !== st.pollId) document.getElementById('voteBtn').hidden = false;
-        })
-        .catch(function () {});
+      function tick() {
+        clearTimeout(timer);
+        if (!key) return lock();
+        if (document.hidden) return schedule();
+        fetch('/api/results', { cache: 'no-store', headers: { 'x-host-key': key } })
+          .then(function (r) {
+            if (r.status === 401) { key = ''; lock(); return null; }
+            if (!r.ok) throw new Error();
+            return r.json();
+          })
+          .then(function (d) { if (!d) return; failures = 0; render(d); schedule(); })
+          .catch(function () { failures++; schedule(); });
+      }
 
       tick();
       document.addEventListener('visibilitychange', function () { if (!document.hidden) tick(); });
