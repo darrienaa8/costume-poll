@@ -1,0 +1,14 @@
+{
+  "name": "costume-poll",
+  "version": "1.0.0",
+  "description": "A tiny Halloween costume poll: scan a QR code, vote, watch the live tally.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "private": true
+}
