@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c0516">
+  <title>Costume Results</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E🏆%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Creepster&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="sky" aria-hidden="true"><div class="moon"></div><span class="bat b1">🦇</span><span class="bat b2">🦇</span><span class="bat b3">🦇</span></div>
+
+  <main class="wrap wide">
+    <p class="kicker">🎃 Halloween Party</p>
+    <h1>Costume Results</h1>
+
+    <div class="stats">
+      <span class="live">Live tally</span>
+      <span><strong id="total">0</strong> <span id="totalLabel">votes</span></span>
+    </div>
+
+    <ol class="board" id="board"></ol>
+
+    <div class="card empty" id="empty">
+      <div class="big-emoji">👻</div>
+      <div>No votes yet. Be the first!</div>
+    </div>
+
+    <a class="btn" id="voteBtn" href="/" hidden>Cast my vote 🎃</a>
+  </main>
+
+  <script>
+    (function () {
+      var board = document.getElementById('board');
+      var rows = new Map(); // entry id -> <li>
+      var failures = 0;
+
+      function makeRow() {
+        var li = document.createElement('li');
+        li.className = 'row';
+        li.innerHTML = '<div class="bar"></div><div class="rank"></div><div class="name"></div><div class="count"></div>';
+        return li;
+      }
+
+      function render(data) {
+        document.getElementById('total').textContent = data.total;
+        document.getElementById('totalLabel').textContent = data.total === 1 ? 'vote' : 'votes';
+        document.getElementById('empty').hidden = data.entries.length > 0;
+
+        var max = data.entries.length ? data.entries[0].votes : 1;
+        var tie = data.leaders.length > 1;
+        var seen = new Set();
+
+        data.entries.forEach(function (e) {
+          seen.add(e.id);
+          var li = rows.get(e.id);
+          if (!li) { li = makeRow(); rows.set(e.id, li); }
+          var leader = data.leaders.indexOf(e.id) !== -1;
+          var rank = 1 + data.entries.filter(function (o) { return o.votes > e.votes; }).length;
+
+          li.className = 'row' + (leader ? ' leader' : '');
+          li.querySelector('.rank').textContent = leader ? '👑' : '#' + rank;
+          var nameEl = li.querySelector('.name');
+          nameEl.textContent = e.name;
+          if (leader) {
+            var b = document.createElement('span');
+            b.className = 'badge';
+            b.textContent = tie ? 'Tied for the lead' : 'Leading';
+            nameEl.appendChild(b);
+          }
+          li.querySelector('.count').innerHTML = e.votes + '<small>' + (e.votes === 1 ? 'vote' : 'votes') + '</small>';
+          li.querySelector('.bar').style.width = Math.max(4, Math.round((e.votes / max) * 100)) + '%';
+          board.appendChild(li); // appending in order also re-sorts existing rows
+        });
+
+        rows.forEach(function (li, id) {
+          if (!seen.has(id)) { li.remove(); rows.delete(id); }
+        });
+      }
+
+      var timer = null;
+      function schedule() {
+        clearTimeout(timer); // always exactly one polling loop
+        timer = setTimeout(tick, failures > 2 ? 8000 : 3000);
+      }
+      function tick() {
+        clearTimeout(timer);
+        if (document.hidden) return schedule();
+        fetch('/api/results', { cache: 'no-store' })
+          .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+          .then(function (d) { failures = 0; render(d); })
+          .catch(function () { failures++; })
+          .then(schedule);
+      }
+
+      // Offer the vote button only to people who haven't voted yet.
+      fetch('/api/status', { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (st) {
+          var ls = null;
+          try { ls = localStorage.getItem('costumePollVoted'); } catch (e) {}
+          if (!st.voted && ls !== st.pollId) document.getElementById('voteBtn').hidden = false;
+        })
+        .catch(function () {});
+
+      tick();
+      document.addEventListener('visibilitychange', function () { if (!document.hidden) tick(); });
+    })();
+  </script>
+</body>
+</html>

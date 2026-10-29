@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#0c0516">
+  <title>Host Control Room</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E🕯️%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Creepster&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="sky" aria-hidden="true"><div class="moon"></div><span class="bat b1">🦇</span><span class="bat b2">🦇</span></div>
+
+  <main class="wrap wide">
+    <p class="kicker">🕯️ Private</p>
+    <h1>Host Control Room</h1>
+
+    <!-- key gate -->
+    <form class="card" id="gate" hidden>
+      <label class="question" for="keyInput">Enter the host key</label>
+      <input class="text" id="keyInput" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Host key">
+      <button class="btn" type="submit">Unlock 🔓</button>
+      <p class="msg err" id="gateMsg" role="status"></p>
+      <p class="hint">The key is printed in the terminal when the server starts, or it’s the HOST_KEY you set.</p>
+    </form>
+
+    <!-- control room -->
+    <div id="panel" hidden>
+      <p class="sub" id="summary"></p>
+
+      <div class="toolbar">
+        <button class="btn small" id="mergeBtn" type="button" disabled>Merge selected</button>
+        <button class="btn small ghost" id="clearSel" type="button" hidden>Clear selection</button>
+        <span class="grow"></span>
+        <a class="btn small ghost" href="/results" target="_blank" rel="noopener">Results ↗</a>
+      </div>
+
+      <ul class="glist" id="list"></ul>
+      <div class="card empty" id="empty" hidden>
+        <div class="big-emoji">🦴</div>
+        <div>No votes yet.</div>
+      </div>
+
+      <p class="hint">Tick two or more entries and tap <strong>Merge selected</strong> to combine them. Tap ▾ on an entry to see each spelling guests typed, then <strong>Split out</strong> to pull one spelling into its own entry.</p>
+
+      <div class="divider"></div>
+
+      <div class="card share">
+        <h2>Share &amp; reset</h2>
+        <div>Guest link <code id="guestUrl"></code></div>
+        <div class="toolbar" style="margin:0">
+          <a class="btn small ghost" href="/qr" target="_blank" rel="noopener">Printable QR code ↗</a>
+          <button class="btn small ghost" id="copyBtn" type="button">Copy guest link</button>
+        </div>
+        <div class="divider" style="margin:6px 0"></div>
+        <button class="btn danger small" id="resetBtn" type="button">Reset the poll 💀</button>
+        <p class="hint" style="margin:0">Deletes every vote and lets everyone vote again.</p>
+      </div>
+      <p class="msg" id="toast" role="status" aria-live="polite"></p>
+    </div>
+  </main>
+
+  <script>
+    (function () {
+      var KEY_LS = 'costumePollHostKey';
+      var $ = function (id) { return document.getElementById(id); };
+
+      var key = '';
+      try { key = new URLSearchParams(location.search).get('key') || localStorage.getItem(KEY_LS) || ''; } catch (e) {}
+      if (location.search) history.replaceState(null, '', location.pathname); // keep the key out of the address bar
+
+      var groups = [];
+      var total = 0;
+      var selected = new Set();
+      var openIds = new Set();
+      var inFlight = false;
+      var timer = null;
+
+      function h(tag, attrs) {
+        var el = document.createElement(tag);
+        Object.keys(attrs || {}).forEach(function (k) {
+          var v = attrs[k];
+          if (k === 'class') el.className = v;
+          else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), v);
+          else if (v === true) el.setAttribute(k, '');
+          else if (v !== false && v != null) el.setAttribute(k, v);
+        });
+        (function add(items) {
+          items.forEach(function (c) {
+            if (c == null || c === false) return;
+            if (Array.isArray(c)) return add(c);
+            el.append(c.nodeType ? c : document.createTextNode(c));
+          });
+        })(Array.prototype.slice.call(arguments, 2));
+        return el;
+      }
+
+      function toast(text, isErr) {
+        var t = $('toast');
+        t.textContent = text || '';
+        t.className = 'msg' + (isErr ? ' err' : '');
+        if (text) setTimeout(function () { if (t.textContent === text) t.textContent = ''; }, 4000);
+      }
+
+      function showGate(message) {
+        clearTimeout(timer);
+        $('panel').hidden = true;
+        $('gate').hidden = false;
+        $('gateMsg').textContent = message || '';
+        try { localStorage.removeItem(KEY_LS); } catch (e) {}
+        key = '';
+      }
+
+      function call(path, body) {
+        return fetch(path, {
+          method: body ? 'POST' : 'GET',
+          headers: { 'x-host-key': key, 'Content-Type': 'application/json' },
+          body: body ? JSON.stringify(body) : undefined,
+          cache: 'no-store'
+        }).then(function (r) {
+          if (r.status === 401) { showGate('That key didn’t work.'); throw new Error('unauthorized'); }
+          return r.json().catch(function () { return {}; }).then(function (j) {
+            if (!r.ok) throw new Error(j.message || 'Something went wrong.');
+            return j;
+          });
+        });
+      }
+
+      var lastSig = '';
+      function apply(state) {
+        var sig = JSON.stringify(state);
+        var changed = sig !== lastSig;
+        lastSig = sig;
+        groups = state.groups;
+        total = state.total;
+        var ids = new Set(groups.map(function (g) { return g.id; }));
+        selected.forEach(function (id) { if (!ids.has(id)) { selected.delete(id); changed = true; } });
+        openIds.forEach(function (id) { if (!ids.has(id)) { openIds.delete(id); changed = true; } });
+        if (changed) render(); // skip rebuilding the DOM when the 4s refresh found nothing new
+      }
+
+      function refresh() {
+        if (inFlight) return Promise.resolve();
+        return call('/api/host/state').then(apply).catch(function () {});
+      }
+
+      function act(path, body, okText) {
+        inFlight = true;
+        return call(path, body)
+          .then(function (s) { apply(s); if (okText) toast(okText); })
+          .catch(function (e) { if (e.message !== 'unauthorized') toast(e.message, true); })
+          .then(function () { inFlight = false; });
+      }
+
+      function render() {
+        $('summary').textContent = total + (total === 1 ? ' vote' : ' votes') + ' in ' + groups.length + (groups.length === 1 ? ' entry' : ' entries');
+        $('empty').hidden = groups.length > 0;
+        $('mergeBtn').disabled = selected.size < 2;
+        $('mergeBtn').textContent = selected.size >= 2 ? 'Merge ' + selected.size + ' selected' : 'Merge selected';
+        $('clearSel').hidden = selected.size === 0;
+
+        var list = $('list');
+        list.textContent = '';
+        groups.forEach(function (g) {
+          var isOpen = openIds.has(g.id);
+          var li = h('li', { class: 'g' + (selected.has(g.id) ? ' sel' : '') },
+            h('div', { class: 'ghead' },
+              h('input', {
+                type: 'checkbox', 'aria-label': 'Select ' + g.name, checked: selected.has(g.id),
+                onchange: function (e) { e.target.checked ? selected.add(g.id) : selected.delete(g.id); render(); }
+              }),
+              h('div', { class: 'gname' }, g.name, g.customName ? h('span', { class: 'tag' }, 'renamed') : null),
+              h('div', { class: 'gcount' }, String(g.votes)),
+              h('button', { class: 'icon', type: 'button', title: 'Rename', 'aria-label': 'Rename ' + g.name, onclick: function () {
+                var n = prompt('Display name for this entry (leave blank to go back to automatic):', g.name);
+                if (n !== null) act('/api/host/rename', { groupId: g.id, name: n });
+              } }, '✏️'),
+              h('button', { class: 'icon', type: 'button', title: 'Show spellings', 'aria-expanded': String(isOpen), 'aria-label': 'Show what guests typed for ' + g.name, onclick: function () {
+                isOpen ? openIds.delete(g.id) : openIds.add(g.id); render();
+              } }, isOpen ? '▴' : '▾')
+            )
+          );
+          if (isOpen) {
+            li.append(h('ul', { class: 'variants' }, g.variants.map(function (v) {
+              return h('li', null,
+                h('span', { class: 'vtext' }, v.text),
+                h('span', null, '×' + v.count),
+                g.variants.length > 1
+                  ? h('button', { class: 'btn small ghost', type: 'button', onclick: function () {
+                      if (confirm('Split “' + v.text + '” out of “' + g.name + '” into its own entry?')) {
+                        act('/api/host/split', { groupId: g.id, variant: v.key }, 'Split into its own entry.');
+                      }
+                    } }, 'Split out')
+                  : null
+              );
+            })));
+          }
+          list.append(li);
+        });
+      }
+
+      $('mergeBtn').addEventListener('click', function () {
+        var picked = groups.filter(function (g) { return selected.has(g.id); });
+        if (picked.length < 2) return;
+        var names = picked.map(function (g) { return '“' + g.name + '”'; }).join(', ');
+        if (!confirm('Merge ' + names + ' into one entry?')) return;
+        var ids = picked.map(function (g) { return g.id; });
+        selected.clear();
+        act('/api/host/merge', { ids: ids }, 'Merged.');
+      });
+
+      $('clearSel').addEventListener('click', function () { selected.clear(); render(); });
+
+      $('resetBtn').addEventListener('click', function () {
+        if (!confirm('Reset the poll? This deletes all ' + total + ' votes and lets everyone vote again.')) return;
+        selected.clear(); openIds.clear();
+        act('/api/host/reset', {}, 'Poll reset. Everyone can vote again.');
+      });
+
+      $('guestUrl').textContent = location.origin + '/';
+      $('copyBtn').addEventListener('click', function () {
+        var url = location.origin + '/';
+        (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject())
+          .then(function () { toast('Link copied.'); })
+          .catch(function () { toast('Press and hold the link to copy it.', true); });
+      });
+
+      $('gate').addEventListener('submit', function (e) {
+        e.preventDefault();
+        key = $('keyInput').value.trim();
+        start();
+      });
+
+      function start() {
+        if (!key) return showGate('');
+        call('/api/host/state').then(function (s) {
+          try { localStorage.setItem(KEY_LS, key); } catch (e) {}
+          $('gate').hidden = true;
+          $('panel').hidden = false;
+          apply(s);
+          clearTimeout(timer);
+          (function loop() { timer = setTimeout(function () { refresh().then(loop); }, 4000); })();
+        }).catch(function (e) {
+          if (e.message !== 'unauthorized') showGate('Couldn’t reach the poll.');
+        });
+      }
+
+      start();
+    })();
+  </script>
+</body>
+</html>

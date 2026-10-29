@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c0516">
+  <title>Costume Poll QR Code</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E🎃%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Creepster&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="sky" aria-hidden="true"><div class="moon"></div><span class="bat b1">🦇</span><span class="bat b2">🦇</span><span class="bat b3">🦇</span></div>
+
+  <main class="wrap">
+    <div class="poster">
+      <p class="kicker">🎃 Halloween Party 🎃</p>
+      <h1>Who has the<br>best costume?</h1>
+      <div class="qr" id="qr" aria-live="polite"></div>
+      <p class="scan spooky">Scan to vote! 👻</p>
+      <p class="url" id="shownUrl"></p>
+    </div>
+
+    <section class="card controls">
+      <label class="question" for="urlInput" style="font-size:1.05rem">Link guests will open</label>
+      <input class="text" id="urlInput" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <p class="warn" id="warn" hidden></p>
+      <p class="msg err" id="err" role="alert"></p>
+      <button class="btn" id="printBtn" type="button">Print this page 🖨️</button>
+      <button class="btn ghost" id="pngBtn" type="button">Download PNG</button>
+      <button class="btn ghost" id="svgBtn" type="button">Download SVG</button>
+      <p class="hint">Phones can only scan what they can reach. Use the public link (or the Wi-Fi address from the terminal), not “localhost”. Edit the link above and the code updates.</p>
+    </section>
+  </main>
+
+  <script src="/qr.js"></script>
+  <script>
+    (function () {
+      var $ = function (id) { return document.getElementById(id); };
+      var params = new URLSearchParams(location.search);
+      var input = $('urlInput');
+      var svg = '';
+
+      input.value = params.get('url') || (location.origin + '/');
+
+      function isLocalOnly(u) {
+        try {
+          var host = new URL(u).hostname;
+          return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+        } catch (e) { return false; }
+      }
+
+      function draw() {
+        var url = input.value.trim();
+        $('err').textContent = '';
+        $('warn').hidden = true;
+        if (!url) { $('qr').textContent = ''; $('shownUrl').textContent = ''; svg = ''; return; }
+        try {
+          svg = QR.toSvg(QR.encode(url, 'M'), { border: 0, fg: '#000', bg: '#fff' });
+          $('qr').innerHTML = svg;
+          $('shownUrl').textContent = url;
+          if (isLocalOnly(url)) {
+            $('warn').hidden = false;
+            $('warn').textContent = 'This link only works on this computer. Replace it with your public link or Wi-Fi address before printing.';
+          }
+        } catch (e) {
+          svg = '';
+          $('qr').textContent = '';
+          $('err').textContent = e.message;
+        }
+      }
+
+      function download(name, blob) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+      }
+
+      // Download versions include the white margin ("quiet zone") scanners need.
+      function paddedSvg() {
+        return QR.toSvg(QR.encode(input.value.trim(), 'M'), { border: 4, fg: '#000', bg: '#fff' });
+      }
+
+      input.addEventListener('input', draw);
+      $('printBtn').addEventListener('click', function () { window.print(); });
+
+      $('svgBtn').addEventListener('click', function () {
+        if (svg) download('costume-poll-qr.svg', new Blob([paddedSvg()], { type: 'image/svg+xml' }));
+      });
+
+      $('pngBtn').addEventListener('click', function () {
+        if (!svg) return;
+        var img = new Image();
+        var url = URL.createObjectURL(new Blob([paddedSvg()], { type: 'image/svg+xml' }));
+        img.onload = function () {
+          var c = document.createElement('canvas');
+          c.width = c.height = 1200;
+          var ctx = c.getContext('2d');
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(img, 0, 0, 1200, 1200);
+          URL.revokeObjectURL(url);
+          c.toBlob(function (b) { download('costume-poll-qr.png', b); }, 'image/png');
+        };
+        img.src = url;
+      });
+
+      draw();
+    })();
+  </script>
+</body>
+</html>

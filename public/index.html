@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c0516">
+  <title>Best Costume Vote</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E🎃%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Creepster&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="sky" aria-hidden="true"><div class="moon"></div><span class="bat b1">🦇</span><span class="bat b2">🦇</span><span class="bat b3">🦇</span></div>
+
+  <main class="wrap">
+    <p class="kicker">🎃 Halloween Party</p>
+    <h1>Best Costume Vote</h1>
+    <p class="sub">One vote each. No sign-up.</p>
+
+    <section class="card" id="loading"><p class="center" style="margin:0">Summoning the poll… 🕯️</p></section>
+
+    <form class="card" id="form" hidden novalidate>
+      <label class="question" for="costume">Who do you think has the best costume?</label>
+      <input class="text" id="costume" name="costume" type="text" maxlength="60"
+             placeholder="Their costume, e.g. The Witch"
+             autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="send">
+      <button class="btn" id="submit" type="submit">Submit my vote 👻</button>
+      <p class="msg" id="msg" role="status" aria-live="polite"></p>
+      <p class="hint">Spelling doesn’t need to be perfect. We’ll match similar answers.</p>
+    </form>
+
+    <section class="card center" id="done" hidden>
+      <div class="big-emoji" id="doneEmoji">🎃</div>
+      <h2 id="doneTitle">Thanks!</h2>
+      <p class="sub" id="doneText" style="margin-bottom:14px"></p>
+      <a class="btn" href="/results">See the results 🏆</a>
+    </section>
+
+    <section class="card center" id="offline" hidden>
+      <div class="big-emoji">🕸️</div>
+      <p style="margin:0 0 6px">Couldn’t reach the poll. Check your connection.</p>
+      <button class="btn" id="retry" type="button">Try again</button>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      var LS_KEY = 'costumePollVoted';
+      var $ = function (id) { return document.getElementById(id); };
+      var pollId = null;
+      var sending = false;
+
+      function lsGet() { try { return localStorage.getItem(LS_KEY); } catch (e) { return null; } }
+      function lsSet(v) { try { localStorage.setItem(LS_KEY, v); } catch (e) {} }
+
+      function show(which) {
+        ['loading', 'form', 'done', 'offline'].forEach(function (id) { $(id).hidden = id !== which; });
+      }
+
+      function finish(emoji, title, text, delay) {
+        $('doneEmoji').textContent = emoji;
+        $('doneTitle').textContent = title;
+        $('doneText').textContent = text;
+        show('done');
+        setTimeout(function () { location.href = '/results'; }, delay);
+      }
+
+      function alreadyVoted() {
+        finish('👻', 'You’ve already voted. Thanks!', 'Taking you to the results…', 2200);
+      }
+
+      function init() {
+        show('loading');
+        fetch('/api/status', { cache: 'no-store' })
+          .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+          .then(function (st) {
+            pollId = st.pollId;
+            // Either check is enough to block: cookie (server) or local storage flag (this browser).
+            if (st.voted || lsGet() === st.pollId) {
+              lsSet(st.pollId);
+              alreadyVoted();
+            } else {
+              show('form');
+            }
+          })
+          .catch(function () { show('offline'); });
+      }
+
+      $('retry').addEventListener('click', init);
+
+      $('form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (sending) return;
+        var text = $('costume').value.replace(/\s+/g, ' ').trim();
+        var msg = $('msg');
+        msg.className = 'msg';
+        if (!text) { msg.className = 'msg err'; msg.textContent = 'Type a costume first 🎃'; $('costume').focus(); return; }
+
+        sending = true;
+        $('submit').disabled = true;
+        msg.textContent = 'Casting your vote…';
+
+        fetch('/api/vote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: text })
+        })
+          .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { status: r.status, body: j }; }); })
+          .then(function (res) {
+            if (res.status === 200) {
+              lsSet(res.body.pollId || pollId || '1');
+              finish('🎃', 'Vote counted!', 'Thanks! Here come the results…', 1200);
+            } else if (res.status === 409) {
+              lsSet(res.body.pollId || pollId || '1');
+              alreadyVoted();
+            } else {
+              msg.className = 'msg err';
+              msg.textContent = res.body.message || 'Something went wrong. Try again.';
+              sending = false;
+              $('submit').disabled = false;
+            }
+          })
+          .catch(function () {
+            msg.className = 'msg err';
+            msg.textContent = 'Couldn’t reach the poll. Try again.';
+            sending = false;
+            $('submit').disabled = false;
+          });
+      });
+
+      init();
+    })();
+  </script>
+</body>
+</html>
