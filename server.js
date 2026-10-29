@@ -88,6 +88,8 @@ async function handleApi(req, res, p) {
   }
 
   if (req.method === 'GET' && p === '/api/results') {
+    // Results are private: only the host (with the key) can read the tally.
+    if (!isHost(req)) return sendJson(res, 401, { message: 'Results are hidden.' });
     return sendJson(res, 200, poll.results());
   }
 
